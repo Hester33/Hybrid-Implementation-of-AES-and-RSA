@@ -26,7 +26,7 @@ def multiplicativeInverse(a,b):
         ly += oa
     return lx
 
-#Eucclid's algorithm:
+#Euclid's algorithm:
 def gcd(a,b):
     while b != 0:
         temp = a%b
@@ -87,7 +87,7 @@ def generatePrime(keysize):
 
 #Creates two keys, private and public. The private key is used to encrypt the public key which is used to encrypt the plaintext.
 def KeyGeneration(s=8):
-    #Generate 2 large random primes p,q of the same size
+    #Step 1: Generate 2 large random primes p,q of the same size
     p = generatePrime(s)
     q = generatePrime(s)
     # Ensure p and q are distinct
@@ -99,16 +99,18 @@ def KeyGeneration(s=8):
         raise ValueError('Both numbers must be prime.')
     elif p == q:
         raise ValueError('p and q cannot be equal')
-    #Compute n=pq and phi=(p-1)(q-1)
+    #Step 2: Compute n=pq and phi=(p-1)(q-1)
     n=p*q
+    #Step 3: Euler Totient Function
     phi=(p-1)*(q-1)
-    #Select e: such that (1<e<phi) and gcd(e,phi)=1
+    #Step 4: Select e: such that (1<e<phi) and gcd(e,phi)=1
     e = random.randrange(1, phi)
     g = gcd(e,phi)
+    #if gcd(e,phi)!=1, we will select again e
     while g != 1:
         e = random.randrange(1, phi)
         g = gcd(e, phi)
-    #Generate d: such that (1<d<phi) and e.d=1(mod phi)
+    #Step 5: Generate d: such that (1<d<phi) and e.d=1(mod phi)
     d = multiplicativeInverse(e, phi)
     #Return public and private keys
     #(e, n) = public key
@@ -150,8 +152,10 @@ def main():
     print('Private key (d, n) = ', privateKey)
     print('==============================================================')
     
+    '''AES'''
     #Create a new symmetric key
     print("Creating random new symmetric key using PyCryptodome...")
+    #generate 16bytes of secret key
     key = secrets.token_hex(16)
     print("AES Symmetric Key")
     print(key)
@@ -171,7 +175,7 @@ def main():
     print("AES cipher text: ")
     print(cipherText)
 
-    #Next we encrypt the AES symmetric key, using RSA
+    #Use RSA to encrypt the AES symmetric key 
     cipherKey=encrypt(publicKey,key)
     print("\nEncrypting the AES symmetric key using RSA...")
     print("Encrypted AES symmetric key: ", cipherKey)
