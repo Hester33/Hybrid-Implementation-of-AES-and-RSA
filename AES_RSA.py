@@ -4,6 +4,10 @@ import sys
 from Crypto.Cipher import AES
 from Crypto import Random
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+
 #Public Key: e
 #Private Key: d
 
@@ -85,37 +89,46 @@ def generatePrime(keysize):
         if isPrime(num):
             return num
 
-#Creates two keys, private and public. The private key is used to encrypt the public key which is used to encrypt the plaintext.
 def KeyGeneration(s=8):
-    #Step 1: Generate 2 large random primes p,q of the same size
+    # Step 1: Generate 2 large random primes p, q of the same size
     p = generatePrime(s)
     q = generatePrime(s)
     # Ensure p and q are distinct
     while p == q:
         q = generatePrime(s)
 
-    #This should only happen if the generatePrime function fails:
+    # This should only happen if the generatePrime function fails:
     if not (isPrime(p) and isPrime(q)):
         raise ValueError('Both numbers must be prime.')
     elif p == q:
         raise ValueError('p and q cannot be equal')
-    #Step 2: Compute n=pq and phi=(p-1)(q-1)
-    n=p*q
-    #Step 3: Euler Totient Function
+
+    # Step 2: Compute n = pq and phi = (p-1)(q-1)
+    n = p * q
     phi=(p-1)*(q-1)
-    #Step 4: Select e: such that (1<e<phi) and gcd(e,phi)=1
+
+    # Step 3: Select e such that 1 < e < phi and gcd(e, phi) = 1
     e = random.randrange(1, phi)
-    g = gcd(e,phi)
-    #if gcd(e,phi)!=1, we will select again e
+    g = gcd(e, phi)
+    # if gcd(e, phi) != 1, we will select another e
     while g != 1:
         e = random.randrange(1, phi)
         g = gcd(e, phi)
-    #Step 5: Generate d: such that (1<d<phi) and e.d=1(mod phi)
+
+    # Step 4: Generate d such that 1 < d < phi and e * d = 1 (mod phi)
     d = multiplicativeInverse(e, phi)
-    #Return public and private keys
-    #(e, n) = public key
-    #(d, n) = private key
-    return ((e,n), (d,n))
+
+    # Step 5: Generate additional private key components
+    p, q = min(p, q), max(p, q)  # Ensure p < q
+    dmp1 = d % (p - 1)
+    dmq1 = d % (q - 1)
+    iqmp = multiplicativeInverse(q, p)
+
+    # Return public and private keys
+    # (e, n) = public key
+    # (d, p, q, dmp1, dmq1, iqmp) = private key
+    return ((e, n), (d, p, q, dmp1, dmq1, iqmp))
+
 
 #Encryption function using public key
 def encrypt(publicKey, plaintext):
@@ -124,11 +137,12 @@ def encrypt(publicKey, plaintext):
     cipher =[(ord(char)**e)%n for char in plaintext]
     return cipher
 
-#Decryption function using private key
 def decrypt(privatekey, ciphertext):
-    d,n = privatekey
-    m = [chr((char**d)%n) for char in ciphertext]
+    d, p, q, dmp1, dmq1, iqmp = privatekey
+    n = p * q
+    m = [chr((char ** d) % n) for char in ciphertext]
     return m
+
 
 # We are using PyCryptodome Library for AES Encrytion and Decryption Algorithms
 def encryptAES(cipherAES, plainText):
@@ -138,19 +152,50 @@ def decryptAES(cipherAES, cipherText):
     return cipherAES.decrypt(cipherText).decode("utf-8")
 
 def main():
+    s = 2048  # Bit length for prime generation
     '''Encryption: '''
     print('==============================================================')
     print('==============================================================')
-    print('Encryption and Decrytion by using both AES and RSA.')
+    print('Encryption and Decryption by using both AES and RSA.')
     print('==============================================================')
     print('==============================================================')
-    
-    #First, generate the public and private keys:
+
+    # First, generate the public and private keys
     print('Creating Keys using KeyGeneration()... ')
     publicKey, privateKey = KeyGeneration()
     print('\nPublic key (e, n) = ', publicKey)
     print('Private key (d, n) = ', privateKey)
     print('==============================================================')
+
+    # Create the RSA public key object
+    public_key = rsa.RSAPublicNumbers(*publicKey).public_key()
+    # Serialize the public key to PEM format
+    pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    # Save the public key as a PEM file
+    with open('public_key.pem', 'wb') as file:
+        file.write(pem)
+
+    # Create the RSA private key object and save as PEM file
+       # Create the RSA private key object
+    private_key = rsa.RSAPrivateNumbers(
+        d=privateKey[0],
+        p=privateKey[1],
+        q=privateKey[2],
+        dmp1=privateKey[3],
+        dmq1=privateKey[4],
+        iqmp=privateKey[5],
+        public_numbers=rsa.RSAPublicNumbers(publicKey[0], publicKey[1])
+    ).private_key()
+    pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    with open('private_key.pem', 'wb') as file:
+        file.write(pem)
     
     '''AES'''
     #Create a new symmetric key
@@ -175,10 +220,27 @@ def main():
     print("AES cipher text: ")
     print(cipherText)
 
+    with open('cipherText.bin', 'wb') as file:
+        file.write(cipherText)
+
     #Use RSA to encrypt the AES symmetric key 
     cipherKey=encrypt(publicKey,key)
+   
+    aes_key_bytes = b''.join([x.to_bytes(2, 'big') for x in cipherKey])
+    # Save the encrypted AES key as a binary file
+    with open('aes_key.bin', 'wb') as file:
+        file.write(aes_key_bytes)
+    
+    # Read the encrypted AES key from the binary file
+    with open('aes_key.bin', 'rb') as file:
+        aes_key_bytes = file.read()
+
+    # Convert the encrypted AES key to a list of integers
+    cipherKey = [int.from_bytes(aes_key_bytes[i:i+2], 'big') for i in range(0, len(aes_key_bytes), 2)]
+    
     print("\nEncrypting the AES symmetric key using RSA...")
     print("Encrypted AES symmetric key: ", cipherKey)
+    # print(aes_key_bytes)
 
     #Both the public and private key are saved and needed for encryption.
     print("===============================================================")
@@ -196,7 +258,7 @@ def main():
     cipherAESd=AES.new(decryptedK, AES.MODE_GCM, nonce=nonce)
     FinalMessage=decryptAES(cipherAESd, cipherText)
     print('Decrypting the message using the AES symmetric key...... ')
-    print('Original Plaintext message', FinalMessage)
+    print('Original plaintext: ', FinalMessage)
 
 
 if __name__ == "__main__":
